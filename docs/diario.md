@@ -8,10 +8,12 @@ Construir um backtest de estratégias de fatores (momento 12-1 e baixa volatilid
 
 ## 2. Estrutura do projeto
 
-- `src/dados.py`: download de preços e CDI, diagnóstico de qualidade, cálculo de retornos.
+- `src/dados.py`: download de preços e CDI, diagnóstico de qualidade, cálculo de retornos e alinhamento de calendário.
 - `src/metricas.py`: retorno anualizado, volatilidade, Sharpe, drawdown.
 - `rodar_parte_ab.py`: executa as Partes A e B e imprime os resultados.
+- `checagens.py`: confere se os calendários de ações, Ibovespa e CDI estão alinhados e o nível do Ibovespa.
 - `data/`: cópias locais dos dados baixados (fora do Git, reproduzíveis pelo script).
+- `README.md` e `docs/diario.md`: apresentação do projeto e este diário.
 
 ## 3. Parte A: dados e retornos
 
@@ -21,6 +23,8 @@ Construir um backtest de estratégias de fatores (momento 12-1 e baixa volatilid
 - **Ibovespa:** ticker `^BVSP`. É índice de **preço**, não de retorno total (não reinveste dividendos), então subestima o retorno de quem investe no índice. Tratado como limitação.
 - **CDI:** série 12 do SGS do Banco Central (CDI diário, em % ao dia). Convertido para fração dividindo por 100. Baixado em blocos de 5 anos por limite da API.
 - **Retornos:** simples (compõem no tempo), logarítmicos (somam) e mensais (último preço ajustado de cada mês).
+- **Calendário:** o Yahoo traz nas ações linhas em dias de feriado, com a B3 fechada. O calendário de pregão adotado é o do Ibovespa (função `alinhar_calendario`): os preços não são alterados, só as datas fora do calendário são removidas e listadas (ver seção 4).
+- **Período:** de 01/01/2010 a 11/11/2026 (`FIM` no script). O fim é fixo para os resultados serem reproduzíveis e para evitar o dia em andamento (preço parcial e CDI ainda não publicado).
 
 **Pipeline em cinco etapas:** obter, guardar localmente, validar, transformar, consumir. Erros nas primeiras etapas contaminam as seguintes, por isso a validação vem antes de qualquer métrica.
 
@@ -45,47 +49,27 @@ O plano original previa apenas contar retornos extremos. Durante a execução su
 
 *Observação: a conferência vale para a lista de teste atual. Quando o universo completo for definido (Parte C), o procedimento deve ser repetido.*
 
+**Resumo da primeira execução.** 6 ações de teste (ABEV3, BBDC4, ITUB4, PETR4, VALE3, WEGE3), de 04/01/2010 a 12/11/2026, com 0% de dados faltantes. Foram encontrados 8 retornos diários acima de 20% (BBDC4: 1, PETR4: 4, VALE3: 2, WEGE3: 1), todos conferidos.
+
+**Preços ajustados e fonte externa.** Os preços impressos pelo script são **ajustados** por proventos e desdobramentos, então os níveis diferem dos preços históricos publicados (exemplo: PETR4 em 09/03/2020 aparece de 6,16 para 4,33 no script). A comparação com a fonte externa deve ser feita pelo **retorno percentual**, que independe do ajuste, e não pelo nível do preço.
+
+**Calendário e datas sem par.** Na primeira execução, cada ação tinha 4.190 datas e o Ibovespa cerca de 4.181. O script `checagens.py` mostrou 9 datas presentes nas ações e ausentes no Ibovespa: 02/01/2012, 15/06/2017, 07/09/2017, 12/10/2017, 02/11/2017, 15/11/2017, 20/11/2017, 25/12/2017 e 25/01/2018. Nenhuma data do Ibovespa estava ausente nas ações. Quase todas são feriados brasileiros, o que indica linhas extras do Yahoo em dias sem pregão; 02/01/2012 e 20/11/2017 ainda devem ser confirmadas no calendário de feriados da B3. **Decisão:** usar as datas do Ibovespa como calendário oficial de pregão e remover das ações as datas que não estão nele.
+
+**Data sem CDI.** Uma data do Ibovespa ficou sem CDI: 12/11/2026, dia da execução, em que o Banco Central ainda não havia publicado o CDI. **Decisão:** fixar o fim do período em 11/11/2026, o que também evita usar o preço parcial do dia em andamento.
+
 ## 5. Parte B: métricas e como ler a saída do script
 
 **Métricas implementadas:** retorno anualizado (média geométrica), volatilidade anualizada (desvio padrão × √252), Sharpe sobre o excesso em relação ao CDI e drawdown máximo.
 
 **Como ler a saída**
 
-- **"Datas do Ibovespa sem CDI correspondente":** o script pega cada dia em que o Ibovespa teve retorno e procura o CDI do mesmo dia. Esse número é quantos dias do Ibovespa ficaram sem CDI. O esperado é zero ou muito perto disso. Importa porque o Sharpe subtrai o CDI do retorno **do mesmo dia**; se as datas não casam, a conta fica errada ou dias são descartados sem aviso.
-- **"Período analisado":** o intervalo em que Ibovespa e CDI existem ao mesmo tempo, do primeiro ao último pregão com os dois dados. O download começa em 01/01/2010, então o primeiro pregão é o primeiro de janeiro de 2010 com dado.
+- **"Datas do Ibovespa sem CDI correspondente":** o script pega cada dia em que o Ibovespa teve retorno e procura o CDI do mesmo dia. Esse número é quantos dias do Ibovespa ficaram sem CDI. Com o fim do período fixado em 11/11/2026, o esperado é zero. Importa porque o Sharpe subtrai o CDI do retorno **do mesmo dia**; se as datas não casam, a conta fica errada ou dias são descartados sem aviso.
+- **"Período analisado":** o intervalo em que Ibovespa e CDI existem ao mesmo tempo, do primeiro ao último pregão com os dois dados. O primeiro preço é de 04/01/2010, então o primeiro retorno é o de 05/01/2010.
 - **"Métricas, período completo":** todas as métricas calculadas sobre esse intervalo inteiro, sem dividir em partes. "Completo" contrasta com as análises por sub-período que virão na Parte G (por exemplo, antes e depois de 2020).
 - **"CDI acumulado no período" e "Ibovespa acumulado":** quanto cada um rendeu do início ao fim do período analisado (por exemplo, 2,0 significa +200%). Ambos são calculados sobre as mesmas datas, para a comparação ser justa.
 - **Sharpe do CDI:** não se aplica (o CDI não tem risco a ser remunerado acima dele mesmo), por isso aparece vazio na tabela.
 
-**Conferências a fazer:** comparar o CDI acumulado com a Calculadora do Cidadão do Banco Central e o Ibovespa acumulado com o gráfico do índice em outra fonte. Se bater, a conversão de unidades e o alinhamento de datas estão corretos. Resultados reais: \[preencher após rodar\].
-
-## 6. Limitações conhecidas até aqui
-
-- Fonte gratuita e não auditada (Yahoo Finance); ajustes de proventos brasileiros, como JCP, podem não ser perfeitos.
-- Ibovespa de preço, não de retorno total.
-- Lista de ações da Parte A é só um teste; o universo e o viés de sobrevivência serão tratados na Parte C.
-
-## 7. Registro de alterações
-
-| Data | Alteração | Motivo |
-| --- | --- | --- |
-| 12/11/2026 | Criação das Partes A e B (`dados.py`, `metricas.py`, script) | Início do projeto |
-| 12/11/2026 | Adicionada `listar_extremos` e chamada no script | Ideia de investigar cada retorno acima de 20% em vez de só contá-los |
-| 12/11/2026 | Dados extremos conferidos manualmente: todos válidos | Validação antes de usar os dados |
-| 12/11/2026 | Script passou a imprimir o período analisado, calcular os acumulados sobre as mesmas datas e omitir o Sharpe do CDI | Deixar claro o período usado e evitar comparação com datas diferentes e um número sem sentido |
-
-## 8. Próximos passos
-
-- Rodar o script completo e preencher os resultados reais acima.
-- Estudar e iniciar a **Parte C**: universo de ações, liquidez e viés de sobrevivência.
-
-## 9. Resultados da primeira execução (12/11/2026)
-
-**Dados baixados:** 6 ações de teste (ABEV3, BBDC4, ITUB4, PETR4, VALE3, WEGE3), Ibovespa e CDI, de 04/01/2010 a 12/11/2026. Cada ação tem 4.190 observações e 0% de dados faltantes.
-
-**Validação de extremos:** 8 retornos diários acima de 20% (BBDC4: 1, PETR4: 4, VALE3: 2, WEGE3: 1), todos conferidos em fonte externa. Os preços impressos pelo script são **ajustados** por proventos e desdobramentos, então os níveis diferem dos preços históricos publicados (exemplo: PETR4 em 09/03/2020 aparece de 6,16 para 4,33 no script). A comparação com a fonte externa deve ser feita pelo **retorno percentual**, que independe do ajuste, e não pelo nível do preço.
-
-**Métricas de 05/01/2010 a 11/11/2026 (4.179 pregões):**
+**Resultados de 05/01/2010 a 11/11/2026 (4.179 pregões):**
 
 | Métrica | Ibovespa (preço) | CDI |
 | --- | --- | --- |
@@ -97,22 +81,31 @@ O plano original previa apenas contar retornos extremos. Durante a execução su
 
 **Leitura:** no período, o Ibovespa de preço rendeu menos que o CDI e teve Sharpe ligeiramente negativo. Como o índice de preço não inclui dividendos, o retorno total do Ibovespa seria maior, e esse efeito não foi medido aqui (limitação registrada). A barra para qualquer estratégia de ações é alta: precisa superar um CDI médio de cerca de 10% ao ano.
 
-**Pendências de conferência:**
+**Conferências:** o primeiro fechamento do Ibovespa é 70.045 e o de 11/11/2026 é 172.060; a razão é 2,4564, igual ao acumulado do script, então o alinhamento de datas e a conta do acumulado estão corretos. A conversão de unidades do CDI ainda depende de comparar o acumulado (383,49%) com a Calculadora do Cidadão do Banco Central (pendente).
 
-- Uma data do Ibovespa ficou sem CDI. Hipótese: é 12/11/2026, dia da execução, em que o Banco Central ainda não havia publicado o CDI. A confirmar. O último dia baixado pode ainda ser parcial (preço do pregão em andamento), então não deve entrar nas análises seguintes.
-- As ações têm 4.190 datas e o Ibovespa cerca de 4.181. Comparar os calendários para entender a diferença antes da Parte C.
-- Conferir o CDI acumulado na Calculadora do Cidadão do Banco Central e o nível do Ibovespa no início e no fim do período em fonte externa.
+## 6. Limitações conhecidas até aqui
 
-**Registro:** 12/11/2026, primeira execução completa das Partes A e B; resultados registrados nesta seção.
+- Fonte gratuita e não auditada (Yahoo Finance); ajustes de proventos brasileiros, como JCP, podem não ser perfeitos.
+- O Yahoo traz linhas em feriados nas ações; tratado com o calendário do Ibovespa (seção 4).
+- Ibovespa de preço, não de retorno total; o efeito dos dividendos não foi medido.
+- Lista de ações da Parte A é só um teste; o universo e o viés de sobrevivência serão tratados na Parte C.
 
-## 10. Resolução das pendências de conferência (12/11/2026)
+## 7. Registro de alterações
 
-**Calendários desalinhados.** O script `checagens.py` mostrou que as ações tinham 9 datas que o Ibovespa não tem: 02/01/2012, 15/06/2017, 07/09/2017, 12/10/2017, 02/11/2017, 15/11/2017, 20/11/2017, 25/12/2017 e 25/01/2018. Nenhuma data do Ibovespa estava ausente nas ações, ou seja, o calendário do Ibovespa está contido no das ações. Quase todas as datas são feriados brasileiros, o que indica linhas extras do Yahoo em dias sem pregão. As datas de 02/01/2012 e 20/11/2017 devem ser confirmadas no calendário de feriados da B3.
+| Data | Alteração | Motivo |
+| --- | --- | --- |
+| 12/11/2026 | Criação das Partes A e B (`dados.py`, `metricas.py`, script) | Início do projeto |
+| 12/11/2026 | Adicionada `listar_extremos` e chamada no script | Ideia de investigar cada retorno acima de 20% em vez de só contá-los |
+| 12/11/2026 | Dados extremos conferidos manualmente: todos válidos | Validação antes de usar os dados |
+| 12/11/2026 | Script passou a imprimir o período analisado, calcular os acumulados sobre as mesmas datas e omitir o Sharpe do CDI | Deixar claro o período usado e evitar comparação com datas diferentes e um número sem sentido |
+| 12/11/2026 | Primeira execução completa das Partes A e B; resultados registrados na seção 5 | Fechar a primeira etapa com números reais |
+| 12/11/2026 | Adicionada `alinhar_calendario`: calendário de pregão = datas do Ibovespa | 9 datas de feriado nas ações que o Ibovespa não tem |
+| 12/11/2026 | Fim do período fixado em 11/11/2026 (`FIM`) | Evitar o dia em andamento e deixar os resultados reproduzíveis |
+| 12/11/2026 | Conclusão do BBDC4 na tabela de validação reescrita | Causa da queda não confirmada por fonte independente |
+| 12/11/2026 | Diário reorganizado: resultados e pendências resolvidas incorporados às seções 3 a 5 | Documento mais fácil de ler |
 
-**Decisão:** usar as datas do Ibovespa como calendário oficial de pregão e remover das ações as datas que não estão nele (função `alinhar_calendario`). Nenhum preço é alterado, e a lista de datas removidas é impressa a cada execução.
+## 8. Próximos passos
 
-**Data sem CDI:** confirmada como 12/11/2026, dia da execução, em que o CDI ainda não estava publicado. Decisão: congelar o fim do período em 11/11/2026 (`FIM` no script), o que também evita usar o preço parcial do dia em andamento e deixa os resultados reproduzíveis.
-
-**Nível do Ibovespa:** primeiro fechamento 70.045 e fechamento de 11/11/2026 em 172.060; a razão é 2,4564, igual ao acumulado do script. Conferência do CDI na Calculadora do Cidadão: pendente.
-
-**Registro:** 12/11/2026, adicionada `alinhar_calendario`, fim do período fixado em 11/11/2026; as métricas do Ibovespa e do CDI não mudam, pois ambas já usavam o período até 11/11.
+- Conferir o CDI acumulado (383,49%) na Calculadora do Cidadão do Banco Central.
+- Confirmar 02/01/2012 e 20/11/2017 no calendário de feriados da B3.
+- Estudar e iniciar a **Parte C**: universo de ações, liquidez e viés de sobrevivência.

@@ -54,6 +54,7 @@ backtest-fatores-b3/
 │   └── metricas.py    # retorno, volatilidade, Sharpe, drawdown
 ├── docs/diario.md     # decisões, validações e registro de alterações
 ├── rodar_parte_ab.py  # executa as Partes A e B
+├── checagens.py       # confere o alinhamento de calendários e o nível do Ibovespa
 └── requirements.txt
 ```
 
