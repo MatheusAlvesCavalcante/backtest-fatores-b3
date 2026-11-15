@@ -26,7 +26,7 @@ def baixar_precos(tickers, inicio="2010-01-01", fim=None):
         tickers, start=inicio, end=fim, auto_adjust=False, progress=False
     )
     precos = bruto["Adj Close"]
-    if isinstance(precos, pd.Series): 
+    if isinstance(precos, pd.Series):  # caso de um ticker só
         precos = precos.to_frame(tickers[0] if isinstance(tickers, list) else tickers)
     precos.index = pd.to_datetime(precos.index).tz_localize(None)
     return precos.sort_index()
@@ -54,7 +54,7 @@ def baixar_cdi(inicio="2010-01-01", fim=None):
 
     df = pd.concat(pedacos, ignore_index=True)
     df["data"] = pd.to_datetime(df["data"], format="%d/%m/%Y")
-    df["valor"] = df["valor"].astype(float) / 100  
+    df["valor"] = df["valor"].astype(float) / 100  # % a.d. -> fração
     return (
         df.drop_duplicates("data").set_index("data")["valor"].sort_index().rename("cdi")
     )
@@ -94,7 +94,7 @@ def diagnostico(precos, limite=0.20):
 
 def listar_extremos(precos, limite=0.20):
     """Lista cada dia em que o retorno diário passou de ±limite. NÃO exclui nada.
- 
+
     Colunas:
     - preco_anterior / preco: o salto de preço que gerou o retorno
     - retorno: a variação do dia
@@ -124,7 +124,7 @@ def listar_extremos(precos, limite=0.20):
 
 def alinhar_calendario(precos, calendario):
     """Mantém só as datas que existem no calendário de referência.
- 
+
     Usamos as datas do Ibovespa como calendário oficial de pregão: o Yahoo traz
     nas ações algumas linhas em feriados em que a B3 esteve fechada. Nada é
     alterado nos preços; apenas as datas fora do calendário são removidas, e a
@@ -135,3 +135,35 @@ def alinhar_calendario(precos, calendario):
         datas = [d.strftime("%d/%m/%Y") for d in removidas]
         print(f"Removidas {len(removidas)} data(s) fora do calendário de pregão: {datas}")
     return precos.loc[precos.index.isin(calendario)]
+
+
+def baixar_ohlcv(tickers, inicio="2010-01-01", fim=None, lote=25):
+    """Baixa preço ajustado, fechamento e volume de muitos tickers.
+
+    Devolve um dict de DataFrames (datas x tickers):
+    - adj_close: ajustado por proventos e desdobramentos (usado nos retornos)
+    - close: fechamento SEM ajuste de dividendos (só ajustado por splits)
+    - volume: quantidade de ações negociadas
+
+    close * volume dá o volume financeiro em reais. Premissa: o Yahoo ajusta
+    preço e volume de forma consistente nos desdobramentos. Os downloads são
+    feitos em lotes para reduzir o risco de bloqueio por excesso de requisições.
+    """
+    campos = {"adj_close": "Adj Close", "close": "Close", "volume": "Volume"}
+    pedacos = {k: [] for k in campos}
+    for i in range(0, len(tickers), lote):
+        grupo = tickers[i : i + lote]
+        bruto = yf.download(
+            grupo, start=inicio, end=fim, auto_adjust=False, progress=False
+        )
+        for chave, campo in campos.items():
+            df = bruto[campo]
+            if isinstance(df, pd.Series):
+                df = df.to_frame(grupo[0])
+            pedacos[chave].append(df)
+    saida = {}
+    for chave, lista in pedacos.items():
+        df = pd.concat(lista, axis=1)
+        df.index = pd.to_datetime(df.index).tz_localize(None)
+        saida[chave] = df.sort_index()
+    return saida
